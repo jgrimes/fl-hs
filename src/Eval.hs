@@ -5,6 +5,7 @@ import Syntax hiding (Seq, True, False)
 import Text.Parsec
 import qualified Data.Map.Strict as Map
 import Prelude hiding (seq)
+import Data.List as L
 
 -- Glossing over infinite computations in representing the semantic domain
 
@@ -89,6 +90,7 @@ prims' = Map.mapKeys Identifier $ Map.map (D . Function2) $ Map.fromList
   , ("map", map')
   , ("lift", lift')
   , ("cons", cons')
+  , ("C", c')
   ]
   where
     k x (y,h) = (D x, h)
@@ -114,6 +116,10 @@ prims' = Map.mapKeys Identifier $ Map.map (D . Function2) $ Map.fromList
             ith i = apply (f i) (D $ x, snd $ ith (i - 1))
             ys = map ((\(D d) -> d) . fst . ith) [1..n]
             hn = snd $ ith n
+    -- Currying function -- seems to only work on functions that take a sequence
+    c' (Function f) (D y, h) = (D (Function (\(D d,h') -> f (append y d, h'))), h)
+      where append item x@(A _) = D $ Seq (item:x:[])
+            append _    o = error $ "append: " ++ show o
 
     {- seqFunc f' g (D (Seq xs), h0) =
       if anyExceptions evaled
@@ -173,10 +179,6 @@ apply2 (D (Function2 x)) (D y, h) = (D $ Function x', h)
 apply2 (D x) (D y, h) = (Exception
                            (Exc
                             (Seq [flStr "apply", flStr "arg2", Seq [x, y]])), h)
--- F from the paper
--- f :: Expr -> Assignments
---f x v = apply (D $ Function (\(y, h) -> x')) (y, h')
---  where (x', h') = mu x v h
 
 getPrim n v = let (Just o) = Map.lookup n v in o
 apply' = getPrim "apply"
@@ -188,7 +190,9 @@ lift' = Name $ Identifier "lift"
 -- mu computes the meaning denoted by an expression
 mu :: Expr -> Assignments -> [D_Plus] -> DH
 mu (S.Atom a) _ h = (D $ A a, h)
-mu (Name n) v h = let (Just o) = Map.lookup n v in (o, h)  -- if f is a function name
+mu (Name n) v h = case Map.lookup n v of
+  Nothing  -> error $ "Name: " ++ show n ++ " not found in " ++ show v
+  (Just o) -> (o, h)  -- if f is a function name
 mu (S.Seq (Sequence xs)) v h = (D $ Seq ys, hs !! n)
   where h0 = h
         n = length xs
@@ -211,7 +215,33 @@ mu (Where x e) v h = mu x v h
 k :: D_Plus -> DH -> DH
 k x (y,h) = (D x, h)
 
-rho = error "rho not implemented"
+type Names = [String]
+
+dom = Map.keys
+
+(-+-) :: Assignments -> Assignments -> Assignments
+(-+-) = Map.union
+
+(-|-) v1 v2 =
+  if null $ L.intersect (dom v1) (dom v2)
+    then v1 -+- v2
+    else error $ "-|-" ++ show v1 ++ show v2
+
+-- down arrow from the paper aka domain restriction
+(-.-) :: Assignments -> Assignments -> Assignments
+(-.-) = Map.intersection
+
+--(<--) :: Identifier -> Assignments
+(<--) = Map.singleton --f x g = if f == g then Map.singleton f x else Map.empty
+
+-- F from the paper
+-- f :: Expr -> Assignments
+bigF x v = (D $ Function (\(y, h) -> let (D (Function x'), h') = mu x v h in (x' (y, h))))
+
+
+--rho :: Defn -> Assignments -> Names -> Assignments
+rho (Defn (Def f Nothing e)) v = (f <-- (bigF e v))
+rho _ v = v
 --mu (Application x1 x2) v h = mu (apply (apply' v) (Eval.Seq [x1, x2])) v h
 --mu 
 
@@ -224,7 +254,9 @@ rho = error "rho not implemented"
 --rho :: Expr -> Assignments -> Name -> Either Assignments NoBinding
 --rho = undefined
 
-eval s = case parse expr "" s of
+eval1 s env' = case parse expr "" s of
   Right e -> mu e as []
   Left err -> error $ show err
- where as = allPrims
+ where as = allPrims -+- (rho env' allPrims)
+
+eval expr e = mu expr (allPrims -+- e) []

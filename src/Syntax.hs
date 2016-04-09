@@ -54,8 +54,24 @@ data Expr
   | Constr [Expr]
   | PredicateConstr [Expr]
 --  | Infix Expr Expr Expr -- not implemented since parsing could get weird?
-  | Where Expr Expr
+  | Where Expr Env
     deriving (Eq, Show)
+
+data Env
+  = Defns [Defn]
+  | Export [Name] Env
+  | Hide [Name] Env
+  | Lib String
+  | PF
+  | Uses Env Env
+  | EWhere Env Env
+  | Union Env Env
+  | Defn Defn
+  | EExpr Expr
+    deriving (Eq, Show)
+
+data Top = TEnv Env | TDefn Defn | TExpr Expr
+         deriving (Eq, Show)
 
 data Defn
   = Def Name (Maybe PatExpr) Expr

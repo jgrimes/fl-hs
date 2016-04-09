@@ -1,4 +1,7 @@
-module Parser where
+module Parser (
+    module Parser
+  , module Text.Parsec
+) where
 import Syntax as S
 
 import Text.Parsec
@@ -14,18 +17,18 @@ langDef = T.LanguageDef
   , T.commentEnd      = "-}"
   , T.commentLine     = "--"
   , T.nestedComments  = Prelude.True
-  , T.identStart      = letter
-  , T.identLetter     = alphaNum <|> oneOf "_'+"
+  , T.identStart      = letter <|> oneOf "_'+*"
+  , T.identLetter     = try alphaNum <|> oneOf "_'+"
   , T.opStart         = oneOf ":!#$%&*./<=>?@\\^|-~"
   , T.opLetter        = oneOf ":!#$%&*./<=>?@\\^|-~"
-  , T.reservedNames   = ["def"]
-  , T.reservedOpNames = ["where"]
+  , T.reservedNames   = ["def", "where", "lib", "export", "uses"]
+  , T.reservedOpNames = []
   , T.caseSensitive   = Prelude.True
   }
 
 
 name =
-  Identifier <$> many1 (letter <|> oneOf "_+*#$/")
+  Identifier <$> identifier
   -- TODO Implement Operator
 
 atom :: Parser Atom
@@ -35,12 +38,12 @@ atom =
   <|> (string "true" *> pure S.True)
   <|> (string "false" *> pure S.False)
 
-
+str' = char '"' *> many1 letter <* char '"'
 
 sequence :: Parser Sequence
 sequence =
   Sequence <$> (char '<' *> (expr `sepBy` char ',') <* char '>')
-  <|> Str <$> (char '"' *> many1 letter <* char '"')
+  <|> Str <$> str'
 
 application = string ":" >> return Application
 constant = string "~" >> return Constant
@@ -57,10 +60,6 @@ condPat = do
   _ <- string "->"
   e <- expr
   return $ CondPat pat e Nothing
-
-where' :: Parser (Expr -> Expr -> Expr)
-where' =
-  ws *> symbol "where" >> return Where
 
 patList :: Parser PatList
 patList = PatList <$>
@@ -88,9 +87,31 @@ expr =
     <|> try (PredicateConstr <$> brackets (brackets (expr `sepBy` char ',')))
     <|> Constr <$> brackets (expr `sepBy` char ',')
 
+-- env is currently the top level, may refactor env to be in with expr?
+env :: Parser Env
+env =
+  buildExpressionParser envTable $
+  Defns <$> braces (many1 defn <* ws)
+--  <|> Export <$> (reserved "export" *> parens (name `sepBy` symbol ",")) <*> env
+--  <|> Hide <$> (string "hide" *> parens (name `sepBy` symbol ",")) <*> env
+--  <|> Lib <$> (string "lib" *> parens str')
+--  <|> try (Uses <$> env <* ws <* symbol "uses" <*> env)
+--  <|> try (Union <$> env <* ws <* symbol "union" <*> env)
+  <|> braces env
+--  <|> try (EExpr <$> expr)
+--  <|> Defn <$> defn
+
+envTable = [
+  [Infix (ws *> reserved "where" >> return EWhere) AssocLeft]
+--  , [Infix (ws *> reserved "where" >> return EWhere) AssocLeft]
+--  , [Infix (ws *> reserved "where" >> return EWhere) AssocLeft]
+           ]
+
+top = TEnv <$> env <|> TDefn <$> defn <|> TExpr <$> expr
+
 defn :: Parser Defn
 defn =
-  Def <$> (symbol "def" *> name <* ws) <*> (optionMaybe (try patExpr) <* ws) <*> (symbol "==" *> expr)
+  Def <$> (reserved "def" *> name <* ws) <*> (optionMaybe (try patExpr) <* ws) <*> (symbol "==" *> expr)
 
 --topExpr = buildExpressionParser table expr <?> "expression"
 
@@ -99,13 +120,19 @@ table = [
   [Postfix lift],
   [Infix application AssocLeft],
 --  [Infix compose AssocLeft],
-  [Infix cond AssocLeft],
-  [Infix where' AssocLeft]
+  [Infix cond AssocLeft]
   ]
 
+
+
 lexer = T.makeTokenParser langDef
+lexeme = T.lexeme lexer
+identifier = T.identifier lexer
+reserved = T.reserved lexer
 brackets = T.brackets lexer
+braces = T.braces lexer
 symbol = T.symbol lexer
+parens = T.parens lexer
 ws = T.whiteSpace lexer
 
 test1 = "234"
@@ -116,5 +143,6 @@ test5 = "[[asdf->123]]"
 test6 = "[234]where~2342"
 test7 = "def hey hey.34 == asdf"
 test8 = "id:3"
-tests = [test1,test2,test3,test4,test5,test6,test7]
-runTests = mapM (print . parse expr "") tests
+test9 = "def o == adder:5 where { def adder == + }"
+tests = [test1,test2,test3,test4,test5,test6,test7, test8, test9]
+runTests = mapM (print . parse env "") tests

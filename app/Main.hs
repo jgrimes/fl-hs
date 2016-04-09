@@ -1,6 +1,6 @@
 module Main where
 
-import Lib
+import Eval
 
 main :: IO ()
-main = someFunc
+main = print $ eval "[+,*,~2,K:1]:<3,5,6>"

@@ -39,8 +39,9 @@ data PatList
     deriving (Eq, Show)
 
 data Cond
-  = CondExpr Expr Expr (Maybe Expr)
-  | CondPat  Pattern Expr (Maybe Expr)
+  = CondExpr Expr Expr
+  | CondPat  Pattern Expr
+  | CondAlternative Expr Expr
     deriving (Eq, Show)
 
 data Expr

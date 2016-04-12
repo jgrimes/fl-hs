@@ -72,7 +72,6 @@ instance Show E_FL where
   show (Exc (Seq (e1:e2:e3:[]))) = "Exc< " ++ gc e1 ++ " , " ++ gc e2 ++ " , " ++ show e3 ++ " >"
     where gc = concatChars . getSeq
 
-
 type Assignments = Map.Map Name D
 
 exception name typ args = Exception $ (Exc $ (Seq [flStr name, flStr typ, Seq args]))
@@ -133,10 +132,6 @@ prims' = Map.mapKeys Identifier $ Map.map (D . Function2) $ Map.fromList
 
 anyExceptions = any (\x -> case x of Exception _ -> True; _ -> False)
 
--- lift haskell function to first order FL function
---fo :: DH -> DH
---fo 
-
 prims :: Map.Map Name D --(DH -> DH)
 prims = Map.mapKeys Identifier $ Map.map (D. Function) $ Map.fromList
   [
@@ -183,9 +178,10 @@ apply2 (D x) (D y, h) = (Exception
 getPrim n v = let (Just o) = Map.lookup n v in o
 apply' = getPrim "apply"
 
-k' = Name $ Identifier "K"
-cons' = Name $ Identifier "cons"
-lift' = Name $ Identifier "lift"
+flName = Name . Identifier
+k' = flName "K"
+cons' = flName "cons"
+lift' = flName "lift"
 
 -- mu computes the meaning denoted by an expression
 mu :: Expr -> Assignments -> [D_Plus] -> DH
@@ -212,16 +208,15 @@ mu (Constr xs) v h = mu (Application cons' (S.Seq $ Sequence xs)) v h
 mu (Where x e) v h = mu x v h
 --mu (Constant x) v h = mu (apply (D $ Function2 k) x) v h
 
-k :: D_Plus -> DH -> DH
-k x (y,h) = (D x, h)
-
 type Names = [String]
 
 dom = Map.keys
 
+-- union of v1 and v2 with clashes resolved in favor of v1
 (-+-) :: Assignments -> Assignments -> Assignments
 (-+-) = Map.union
 
+-- symmetric union of assignments with disjoint domains
 (-|-) v1 v2 =
   if null $ L.intersect (dom v1) (dom v2)
     then v1 -+- v2
@@ -231,28 +226,17 @@ dom = Map.keys
 (-.-) :: Assignments -> Assignments -> Assignments
 (-.-) = Map.intersection
 
---(<--) :: Identifier -> Assignments
-(<--) = Map.singleton --f x g = if f == g then Map.singleton f x else Map.empty
+-- creates a single assignment: (if f == g then x else #)
+(<--) = Map.singleton
 
--- F from the paper
--- f :: Expr -> Assignments
+-- F(x, V) from the paper
+bigF :: Expr -> Assignments -> D
 bigF x v = (D $ Function (\(y, h) -> let (D (Function x'), h') = mu x v h in (x' (y, h))))
 
 
---rho :: Defn -> Assignments -> Names -> Assignments
+rho :: Env -> Assignments -> Assignments
 rho (Defn (Def f Nothing e)) v = (f <-- (bigF e v))
 rho _ v = v
---mu (Application x1 x2) v h = mu (apply (apply' v) (Eval.Seq [x1, x2])) v h
---mu 
-
---mu :: [Expr] -> [Assignment] -> D_Plus -> DH
---mu (S.Atom a) v h = case x of
---  S.Atom a -> undefined
---  _ -> Nothing
-
--- rho computes the assignment denoted by an expression
---rho :: Expr -> Assignments -> Name -> Either Assignments NoBinding
---rho = undefined
 
 eval1 s env' = case parse expr "" s of
   Right e -> mu e as []

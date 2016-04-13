@@ -9,7 +9,6 @@ import Data.List as L
 import Debug.Trace
 
 -- Glossing over infinite computations in representing the semantic domain
-
 type History = [D_Plus] -- technically should never be empty?
 
 -- D aka D_FL aka semantic domain for FL programs
@@ -20,16 +19,6 @@ data D
 
 -- DH aka histories
 type DH = (D, History)
-
--- D_FL+
---type Atoms = [S.Atom]
---type Seqs = [D_Plus]
-data Atoms
-  = FLInt Int
-  | FLFloat Float
-  | FLChar Char
-  | FLBool Bool
-    deriving (Eq, Show)
 
 -- TODO Don't use syntactic atoms for domain atoms? Doesn't especially matter
 -- in the current implementation since they are the same.
@@ -69,7 +58,6 @@ concatChars :: [D_Plus] -> String
 concatChars = concatMap showAtom
 
 getSeq (Seq plus) = plus
-
 
 instance Show E_FL where
   show (Exc (Seq (e1:e2:e3:[]))) = "Exc< " ++ gc e1 ++ " , " ++ gc e2 ++ " , " ++ show e3 ++ " >"
@@ -187,15 +175,6 @@ apply (D x) (D y, h) = (Exception
 ap :: D_Plus -> (D_Plus, History) -> DH
 ap f (x, h) = apply (D f) (D x, h)
 
-apply2 :: D -> DH -> DH
-apply2 x@(Exception _) (_, h) = (x, h)
-apply2 (D _) (y@(Exception _), h) = (y, h)
-apply2 (D (Function2 x)) (D y, h) = (D $ Function x', h)
-  where x' = x y -- TODO record history as well? exceptions
-apply2 (D x) (D y, h) = (Exception
-                           (Exc
-                            (Seq [flStr "apply", flStr "arg2", Seq [x, y]])), h)
-
 getPrim n v = let (Just o) = Map.lookup n v in o
 apply' = getPrim "apply"
 
@@ -241,8 +220,6 @@ mu (Primed x) v h = mu (Application lift' x) v h
 mu (Constr xs) v h = mu (Application cons' (S.Seq $ Sequence xs)) v h
 mu (Where x e) v h = mu x v h
 
-type Names = [String]
-
 dom = Map.keys
 
 -- union of v1 and v2 with clashes resolved in favor of v1
@@ -265,7 +242,6 @@ dom = Map.keys
 -- F(x, V) from the paper
 bigF :: Expr -> Assignments -> D
 bigF x v = (D $ Function (\(y, h) -> let (x', h') = mu x v h in (apply x' (y, h'))))
-
 
 rho :: Env -> Assignments -> Assignments
 rho (Defn (Def f Nothing e)) v =

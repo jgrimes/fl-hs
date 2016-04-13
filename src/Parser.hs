@@ -9,6 +9,7 @@ import Text.Parsec.String
 import Text.Parsec.Expr
 import qualified Text.Parsec.Token as T
 import Text.Parsec.Language (emptyDef)
+import Control.Monad (liftM2)
 
 -- langDef is used by Parsec's built-in lexer generator
 langDef :: T.LanguageDef ()
@@ -17,14 +18,16 @@ langDef = T.LanguageDef
   , T.commentEnd      = "-}"
   , T.commentLine     = "--"
   , T.nestedComments  = Prelude.True
-  , T.identStart      = letter <|> oneOf "_'+!"
-  , T.identLetter     = try alphaNum <|> oneOf "_'+!"
+  , T.identStart      = letter <|> oneOf "_'+!=*"
+  , T.identLetter     = try alphaNum <|> oneOf "_'+!=*"
   , T.opStart         = oneOf ":!#$%&*./<=>?@\\^|-~;"
   , T.opLetter        = oneOf ":!#$%&*./<=>?@\\^|-~;"
   , T.reservedNames   = ["def", "where", "lib", "export", "uses"]
   , T.reservedOpNames = ["->",";"]
   , T.caseSensitive   = Prelude.True
   }
+
+-- TODO Make all parsers work at the lexeme level
 
 name =
   Identifier <$> identifier
@@ -33,11 +36,11 @@ name =
 atom :: Parser Atom
 atom =
   Character <$> (char '\'' *> letter)
-  <|> Number <$> (read <$> many1 digit)
+  <|> Number <$> integer
   <|> (string "true" *> pure S.True)
   <|> (string "false" *> pure S.False)
 
-str' = char '"' *> many1 letter <* char '"'
+str' = stringLiteral --char '"' *> many1 letter <* char '"'
 
 sequence :: Parser Sequence
 sequence =
@@ -72,14 +75,14 @@ pattern =
 expr :: Parser Expr
 expr =
   lexeme $ buildExpressionParser table $
-    try (Name <$> name)
+    try (Atom <$> atom)
+    <|> try (Name <$> name)
     <|> Seq <$> Parser.sequence
-    <|> try (Atom <$> atom)
     <|> try (PredicateConstr <$> brackets (brackets (expr `sepBy` char ',')))
     <|> Constr <$> brackets (expr `sepBy` char ',')
 
 -- Part of a hack to avoid refactoring the grammar to not
--- be left recursive. Really should learn how to deal with
+-- be left recursive. Really should figure out how to deal with
 -- this in a cleaner way.
 -- Could potentially allow parsing things that shouldn't
 -- be parsed?
@@ -103,13 +106,11 @@ envTable = [
 --  , [Infix (ws *> reserved "where" >> return EWhere) AssocLeft]
   ]
 
-top = TEnv <$> env <|> TDefn <$> defn <|> TExpr <$> expr
+top = ws >> (TEnv <$> env <|> TDefn <$> defn <|> TExpr <$> expr)
 
 defn :: Parser Defn
 defn =
   Def <$> (reserved "def" *> name <* ws) <*> (optionMaybe (try patExpr) <* ws) <*> (symbol "==" *> expr)
-
---topExpr = buildExpressionParser table expr <?> "expression"
 
 table = [
   [Prefix constant],
@@ -129,7 +130,9 @@ brackets = T.brackets lexer
 braces = T.braces lexer
 symbol = T.symbol lexer
 parens = T.parens lexer
+integer = T.integer lexer
 ws = T.whiteSpace lexer
+stringLiteral = T.stringLiteral lexer
 
 test1 = "234"
 test2 = "'c"

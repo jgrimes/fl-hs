@@ -39,4 +39,4 @@ repl = runInputT defaultSettings (loop allPrims)
                 (Left err) -> (liftIO $ print err) >> loop env
                 (Right out) -> case out of
                   (Right o) -> (liftIO $ print o) >> loop env
-                  (Left env') -> (liftIO $ print "Defined.") >> loop (env -+- env')
+                  (Left env') -> (liftIO $ print "Defined.") >> loop (env' -+- env)

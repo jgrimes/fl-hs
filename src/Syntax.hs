@@ -5,7 +5,7 @@ type Identifier = String
 
 data Atom
   = Character Char
-  | Number Int
+  | Number Integer
   | True
   | False
     deriving (Eq, Show)

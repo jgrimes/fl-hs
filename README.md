@@ -2,18 +2,6 @@
 
 Work in progress -- only a few things work and the code ain't great.
 
-    λ> eval "map:+:<<99,99>,<1,2,3,4,5>>"
-    (D <Seq: [<Atom: Number 198 >,<Atom: Number 15 >] >,[])
-    
-    λ> eval "comp:<+,map:~2>:<1,2,3,4,5>"
-    (D <Atom: Number 10 >,[])
-    
-    λ> eval "[+,*,~2,K:1]:<3,5,6>"
-    (D <Seq: [<Atom: Number 14 >,<Atom: Number 90 >,<Atom: Number 2 >,<Atom: Number 1 >] >,[])
-    
-    λ> eval "cons:<+,*>:<3,5,6>"
-    (D <Seq: [<Atom: Number 14 >,<Atom: Number 90 >] >,[])
-
     λ> repl
     FL> def length == comp:<+,map:~1>
     "Defined."
@@ -21,3 +9,19 @@ Work in progress -- only a few things work and the code ain't great.
     (D <Atom: Number 3 >,[])
     FL> map:length:<<1,2,3,4,5>,<53,67,12,4>,<6>>
     (D <Seq: [<Atom: Number 5 >,<Atom: Number 4 >,<Atom: Number 1 >] >,[])
+
+Now with recursive definitions...
+
+    λ> repl
+    FL> def eq0 == comp:<=,[id,~0]>
+    "Defined."
+    FL> def sub1 == C:+:-1
+    "Defined."
+    FL> def fact == eq0 -> ~1; comp:<*,[id,comp:<fact,sub1>]>
+    "Defined."
+    FL> fact:5
+    (D <Atom: Number 120 >,[])
+    FL> fact:3
+    (D <Atom: Number 6 >,[])
+    FL> fact:50
+    (D <Atom: Number 30414093201713378043612608166064768844377641568960512000000000000 >,[])

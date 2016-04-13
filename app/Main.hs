@@ -1,6 +1,6 @@
 module Main where
 
-import Eval
+import Repl
 
 main :: IO ()
-main = print $ eval "[+,*,~2,K:1]:<3,5,6>"
+main = repl

@@ -6,6 +6,7 @@ import Text.Parsec
 import qualified Data.Map.Strict as Map
 import Prelude hiding (seq)
 import Data.List as L
+import Debug.Trace
 
 -- Glossing over infinite computations in representing the semantic domain
 
@@ -30,6 +31,8 @@ data Atoms
   | FLBool Bool
     deriving (Eq, Show)
 
+-- TODO Don't use syntactic atoms for domain atoms? Doesn't especially matter
+-- in the current implementation since they are the same.
 data D_Plus
   = A S.Atom -- atoms are their value, right now no floats though
   | Seq [D_Plus] -- Seqs(X) = {<x1,...,xn | xi in X ^ n >= 0}
@@ -77,12 +80,12 @@ type Assignments = Map.Map Name D
 exception name typ args = Exception $ (Exc $ (Seq [flStr name, flStr typ, Seq args]))
 seq = D . Seq
 
--- lift haskell function to second order FL function
---so :: DH -> DH -> DH
--- 
+traceOn = False
+
 -- second order prims
 prims' :: Map.Map Name D
-prims' = Map.mapKeys Identifier $ Map.map (D . Function2) $ Map.fromList
+prims' = Map.mapKeys Identifier $
+  Map.mapWithKey (\key val -> (D . Function2 . trace' key) val) $ Map.fromList
   [
     ("K", k) -- const:x:_ = x
   , ("comp", comp)
@@ -90,10 +93,14 @@ prims' = Map.mapKeys Identifier $ Map.map (D . Function2) $ Map.fromList
   , ("lift", lift')
   , ("cons", cons')
   , ("C", c')
+  , ("cond", cond')
   ]
   where
+    -- I have tried to implement these as closely to the paper as possible
+    -- but I think they can be cleaned up significantly
     k x (y,h) = (D x, h)
     comp (Seq fs) (x, h) = foldl (\b (Function f) -> f b) (x, h) (reverse fs)
+    comp x1 x2 = error $ "comp " ++ show x1 ++ " - " ++ show x2
     -- TODO gross
     map' f (D (Seq xs), h0) =
       if anyExceptions evaled
@@ -112,25 +119,30 @@ prims' = Map.mapKeys Identifier $ Map.map (D . Function2) $ Map.fromList
       where n = length fs
             f i = D $ fs !! (i - 1)
             ith 0 = (error "prims' - cons' ith 0", h0)
-            ith i = apply (f i) (D $ x, snd $ ith (i - 1))
+            ith i = apply (f i) (D x, snd $ ith (i - 1))
             ys = map ((\(D d) -> d) . fst . ith) [1..n]
             hn = snd $ ith n
     -- Currying function -- seems to only work on functions that take a sequence
     c' (Function f) (D y, h) = (D (Function (\(D d,h') -> f (append y d, h'))), h)
       where append item x@(A _) = D $ Seq (item:x:[])
             append _    o = error $ "append: " ++ show o
-
-    {- seqFunc f' g (D (Seq xs), h0) =
-      if anyExceptions evaled
-        then (Exception $ Exc $ flStr "MAPERROR", hn)
-        else (D $ Seq (map ((\(D d) -> d) . fst . ith)  [1..n]), hn)
-      where n = length xs
-            ith 0 = (error "prims' - map' ith 0", h0)
-            ith i = apply (D g) (D $ xs !! (i-1), snd $ ith (i - 1))
-            evaled = map (fst . ith) [1..n]
-            hn = snd $ ith n -}
-
+    cond' (Seq (f1:f2:f3:_)) (D x, h) =
+      case y1 of
+        (Exception _)   -> (y1, h1)
+        (D (A S.False)) -> ap f3 (x, h1)
+        _               -> ap f2 (x, h1)
+        where (y1, h1) = ap f1 (x, h)
+    -- lol tracing
+    trace' name f x1 x2 =
+      if traceOn
+      then trace ("name - " ++ name ++ " x1 " ++ show x1 ++ " x2 " ++ show x2) (f x1 x2)
+      else f x1 x2
+           
 anyExceptions = any (\x -> case x of Exception _ -> True; _ -> False)
+
+boolToFL :: Bool -> S.Atom
+boolToFL True = S.True
+boolToFL False = S.False
 
 prims :: Map.Map Name D --(DH -> DH)
 prims = Map.mapKeys Identifier $ Map.map (D. Function) $ Map.fromList
@@ -139,10 +151,15 @@ prims = Map.mapKeys Identifier $ Map.map (D. Function) $ Map.fromList
   , ("id", id)
   , ("+", plus')
   , ("*", product')
+  , ("=", eq')
+  , ("intsto", intsto')
   ]
-  where apply' (D (Seq (f:x:_)), h) = apply (D f) (D x, h)
+  where apply' (D (Seq (f:x:_)), h) = ap f (x, h)
         plus' = numSeqFn sum
         product' = numSeqFn product
+        eq' (D (Seq (x1:x2:[])), h) = (D $ A $ boolToFL (x1 == x2), h)
+        eq arg = error $ "eq pattern match error '" ++ show arg
+        intsto' (D (A (Number n)), h) = (D $ Seq $ map (A . Number) [1..n], h)
         numSeqFn f (D (Seq xs), h) = (D$A$ Number $ f (map getNum xs), h)
           where getNum (A (Number n)) = n
                 getNum x = error $ show x
@@ -165,6 +182,10 @@ apply (D x) (D y, h) = (Exception
                            (Exc
                             (Seq [flStr "apply", flStr "arg1", Seq [x, y]])), h)
 
+-- lifts a D_Plus function application into DD
+-- not super necessary but cleans up some often repeated code
+ap :: D_Plus -> (D_Plus, History) -> DH
+ap f (x, h) = apply (D f) (D x, h)
 
 apply2 :: D -> DH -> DH
 apply2 x@(Exception _) (_, h) = (x, h)
@@ -178,10 +199,13 @@ apply2 (D x) (D y, h) = (Exception
 getPrim n v = let (Just o) = Map.lookup n v in o
 apply' = getPrim "apply"
 
+condPrim = getPrim (Identifier "cond")
+
 flName = Name . Identifier
 k' = flName "K"
 cons' = flName "cons"
 lift' = flName "lift"
+cond' = flName "cond"
 
 -- mu computes the meaning denoted by an expression
 mu :: Expr -> Assignments -> [D_Plus] -> DH
@@ -194,9 +218,19 @@ mu (S.Seq (Sequence xs)) v h = (D $ Seq ys, hs !! n)
         n = length xs
         ith 0 = (error "mu - ith", h0)
         ith i = mu (xs!!(i - 1)) v (snd $ ith (i - 1))
-        ys = (map ((\(D d) -> d) . fst) (map ith [1..n]))
-        hs = (map snd (map ith [0..n]))
+        ys = (map ((\(D d) -> d) . fst . ith) [1..n])
+        hs = (map (snd . ith) [0..n])
 mu (S.Seq (Str s)) v h = (D $ flStr s, h)
+mu (Cond (CondAlternative (Cond (CondExpr p x1)) x2)) v h =
+  if anyExceptions [D y0, D y1, D y2]
+  then (D y2, h2)
+  else ap condPrim' (Seq [y0, y1, y2], h)
+  where (D y0, h0) = mu p v h
+        (D y1, h1) = mu x1 (rho (EExpr p) v -+- v) h0
+        (D y2, h2) = mu x2 (rho (EExpr p) v -+- v) h1
+        (D condPrim') = condPrim v
+--mu (Cond (CondAlternative (Cond (CondExpr p x1)) x2)) v h =
+--  mu (Application cond' (S.Seq $ Sequence (p:x1:x2:[]))) v h
 mu (Application x1 x2) v h =
   case y1 of
     D _ -> apply y1 (mu x2 v h)
@@ -206,7 +240,6 @@ mu (Constant x) v h = mu (Application k' x) v h
 mu (Primed x) v h = mu (Application lift' x) v h
 mu (Constr xs) v h = mu (Application cons' (S.Seq $ Sequence xs)) v h
 mu (Where x e) v h = mu x v h
---mu (Constant x) v h = mu (apply (D $ Function2 k) x) v h
 
 type Names = [String]
 
@@ -231,11 +264,14 @@ dom = Map.keys
 
 -- F(x, V) from the paper
 bigF :: Expr -> Assignments -> D
-bigF x v = (D $ Function (\(y, h) -> let (D (Function x'), h') = mu x v h in (x' (y, h))))
+bigF x v = (D $ Function (\(y, h) -> let (x', h') = mu x v h in (apply x' (y, h'))))
 
 
 rho :: Env -> Assignments -> Assignments
-rho (Defn (Def f Nothing e)) v = (f <-- (bigF e v))
+rho (Defn (Def f Nothing e)) v =
+  let v'  = f <-- bigF e (v -+- v'') -- tying the knot~!, but surely there is a better way
+      v'' = f <-- bigF e (v -+- v')
+  in v'
 rho _ v = v
 
 eval1 s env' = case parse expr "" s of
@@ -244,3 +280,7 @@ eval1 s env' = case parse expr "" s of
  where as = allPrims -+- (rho env' allPrims)
 
 eval expr e = mu expr (allPrims -+- e) []
+
+eq0 = "def eq0 == comp:<=,[id,~0]>"
+sub1 = "def sub1 == C:+:-1"
+fact2 = "def fact == eq0 -> ~1; comp:<*,[id,comp:<fact,sub1>]>"
